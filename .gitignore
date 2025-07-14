@@ -1,0 +1,33 @@
+*.pyc
+*.pyo
+*.xlsx
+criar_ambiente.txt
+
+# Ambientes virtuais
+venv/
+env/
+ENV/
+.venv/
+.ENV/
+machine_learning/
+
+# Arquivos de cache do Python
+__pycache__/
+*.py[cod]
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# Configurações de IDEs
+.vscode/
+.idea/
+*.swp
+
+# Arquivos de sistema
+.DS_Store
+Thumbs.db
