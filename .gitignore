@@ -1,6 +1,8 @@
 *.pyc
 *.pyo
 *.xlsx
+*.txt
+*.csv
 criar_ambiente.txt
 
 # Ambientes virtuais

@@ -11,25 +11,44 @@ from tensorflow.keras.layers import Input, Dense, Dropout
 from tensorflow.keras.optimizers import SGD
 from tensorflow.keras.models import Model, load_model
 from tensorflow.keras.callbacks import ModelCheckpoint
-
+import matplotlib.pyplot as plt
+import seaborn as sns
+import random
 
 # %%
-start_date = '2000-01-01'
+def set_seeds(seed=42):
+    """Define seeds para garantir reprodutibilidade"""
+    random.seed(seed)
+    np.random.seed(seed)
+    tf.random.set_seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    os.environ['TF_DETERMINISTIC_OPS'] = '1'
+    os.environ['TF_CUDNN_DETERMINISTIC'] = '1'
+    tf.config.experimental.enable_op_determinism()
+    print(f"Seeds definidas para {seed} - Reprodutibilidade garantida!")
+
+# CHAME IMEDIATAMENTE
+set_seeds(42)
+
+# %%
+start_date = '2015-01-01'
 end_date = '2025-07-12'
 ticker = 'PETR4.SA'
 
-df = yf.download(ticker, start=start_date, end=end_date)
-df.head()
-# %%
-df.columns
-df.columns = [col[0] for col in df.columns]
+# df = yf.download(ticker, start=start_date, end=end_date)
+df = pd.read_csv('PETR4_SA_yahoo.csv')
 
 # %%
-df_close = pd.DataFrame(df[('Close')])
-df_close
+df_close = df[['Date', 'Close']].copy()
+df_close = df_close.set_index('Date')  # Agora 'Date' é o índice
+df_close.index = pd.to_datetime(df_close.index)
+df_close.head()
 
 # %%
-df_close
+print(df_close.index)
+print(type(df_close.index[-1]))
 
 # %%
 def create_lag_features(df, columns, lags):
@@ -65,19 +84,20 @@ list_of_attributes = ['Close']
 list_of_prev_t_instants = list(range(1, 16))
 df_new = create_lag_features(df_close, list_of_attributes, list_of_prev_t_instants)
 
-# %%
-df_new
 
 # %% Desenhar a arquitetura do modelo
 input_layer = Input(shape=(len(list_of_prev_t_instants),), dtype='float32')
-dense1 = Dense(60, activation='linear')(input_layer)
-dense2 = Dense(60, activation='linear')(dense1)
-dropout_layer = Dropout(0.2)(dense2)
-output_layer = Dense(1, activation='linear')(dropout_layer)
+dense1 = Dense(128, activation='relu')(input_layer)
+dense2 = Dense(64, activation='relu')(dense1)
+dropout_layer = Dropout(0.3)(dense2)
+dense3 = Dense(32, activation='relu')(dropout_layer)
+output_layer = Dense(1, activation='linear')(dense3)
 
 # %% Estrutura da rede
 model = Model(inputs=input_layer, outputs=output_layer)
-model.compile(loss='mean_squared_error', optimizer='adam')
+optimizer = tf.keras.optimizers.Adam(learning_rate=0.001)
+model.compile(loss='mean_squared_error', optimizer=optimizer)
+# model.compile(loss='mean_squared_error', optimizer='adam')
 model.summary()
 
 # %%
@@ -86,7 +106,8 @@ test_size = 0.05
 valid_size = 0.05
 
 # Resetando o índice
-df_copy = df_new.reset_index(drop=True)
+# df_copy = df_new.reset_index(drop=True)
+df_copy = df_new.copy()
 
 # Calculando índices de corte
 # O código divide o DataFrame em treino, validação e teste, preservando a ordem temporal (importante para séries temporais).
@@ -110,11 +131,15 @@ print('Train:', X_train.shape, y_train.shape)
 print('Valid:', X_valid.shape, y_valid.shape)
 print('Test:', X_test.shape, y_test.shape)
 # %%
-from sklearn.preprocessing import MinMaxScaler
+from sklearn.preprocessing import MinMaxScaler, StandardScaler
 
 # Cria os scalers
-feature_scaler = MinMaxScaler(feature_range=(0.01, 0.99))
-target_scaler = MinMaxScaler(feature_range=(0.01, 0.99))
+# feature_scaler = MinMaxScaler(feature_range=(0.01, 0.99))
+# target_scaler = MinMaxScaler(feature_range=(0.01, 0.99))
+
+
+feature_scaler = StandardScaler()
+target_scaler = StandardScaler()
 
 # Ajusta o scaler só com os dados de treino e transforma todos os conjuntos
 X_train_scaled = feature_scaler.fit_transform(X_train)
@@ -130,8 +155,8 @@ y_test_scaled  = target_scaler.transform(y_test.values.reshape(-1, 1))
 history = model.fit(
     X_train_scaled,           # Dados de entrada de treino
     y_train_scaled,           # Alvo de treino
-    batch_size=5,             # Tamanho do mini-batch
-    epochs=30,                # Número de épocas
+    batch_size=32,             # Tamanho do mini-batch
+    epochs=100,                # Número de épocas
     validation_data=(X_valid_scaled, y_valid_scaled),  # Dados de validação
     shuffle=False,             
     verbose=1                 # Mostra o progresso
@@ -199,7 +224,7 @@ print(df_results)
 # MGD: Desvio gama médio (métrica para distribuições assimétricas, menos comum).
 # MPD: Desvio de Poisson médio (métrica para contagens, menos comum).
 
-# %%
+
 # %%
 n_steps = len(list_of_prev_t_instants)  # número de lags
 n_forecast = 5  # quantos dias à frente você quer prever
@@ -220,11 +245,10 @@ for _ in range(n_forecast):
     input_seq.append(pred_real)
     input_seq.pop(0)
 
-print("Previsões para os próximos dias:", previsoes)
-print(f"Tamanho da lista previsoes: {len(previsoes)}")
 
 # %% 
-ultima_data = df.index[-1]  # Última data disponível nos  dados
+# ultima_data = df.index[-1]  # Última data disponível nos  dados
+ultima_data = df_close.index[-1]
 
 # Gera as próximas datas (dias úteis)
 datas_futuras = pd.bdate_range(start=ultima_data + pd.Timedelta(days=1), periods=n_forecast)
@@ -237,4 +261,53 @@ df_previsoes = pd.DataFrame({
 })
 
 print(df_previsoes)
+
+# %%
+# Configurações de estilo
+sns.set(style="whitegrid", context="talk", palette="deep")
+plt.figure(figsize=(10, 6))
+
+# Gráfico de linha com pontos
+sns.lineplot(
+    x='Data',
+    y='Previsao',
+    data=df_previsoes,
+    marker='o',
+    linewidth=3,
+    markersize=10,
+    color='#1a73e8'
+)
+
+# --- RÓTULOS OTIMIZADOS ---
+for i, row in df_previsoes.iterrows():
+    # Ajuste dinâmico da posição vertical para evitar sobreposição
+    offset_y = 0.02 if i != len(df_previsoes) - 1 else 0.05  # Último ponto mais alto
+    
+    plt.text(
+        x=row['Data'], 
+        y=row['Previsao'] + offset_y,
+        s=f"{row['Previsao']:.2f}",
+        ha='center',
+        va='bottom',
+        fontsize=12,
+        color='#1a73e8',
+        weight='bold',
+        bbox=dict(facecolor='white', alpha=0.8, edgecolor='none', pad=2)  # Fundo branco para contraste
+    )
+
+# Formatação do eixo X para abreviar datas (ex: "15/07" em vez de "15/07/2025")
+plt.gca().set_xticklabels([d.split('/')[0] + '/' + d.split('/')[1] for d in df_previsoes['Data']])
+
+# Configurações finais
+plt.title('Previsão de Fechamento das Ações PETR4.SA', fontsize=20, weight='bold', color='#22223b')
+plt.xlabel('Data', fontsize=14, weight='bold')
+plt.ylabel('Preço Previsto (R$)', fontsize=14, weight='bold')
+plt.xticks(rotation=30, ha='right', fontsize=14)
+plt.yticks(fontsize=12)
+plt.grid(visible=True, linestyle='--', alpha=0.3)
+sns.despine()
+plt.tight_layout()
+
+plt.show()
+
 # %%
